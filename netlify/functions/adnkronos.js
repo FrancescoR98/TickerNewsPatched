@@ -1,6 +1,16 @@
 exports.handler = function(event, context, callback) {
-  var http = require('http');
-  
-  var options = {
-    host: 'www.adnkronos.com',
-    path: '/NewsFeed/UltimoraNoVideoJson.xml?username=mediaone&password=m3gt67i9
+  callback(null, {
+    statusCode: 200,
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify([
+      "Test titolo 1 - Funziona!",
+      "Checco Zalone record",
+      "Altra notizia test",
+      "Trump policy 2026",
+      "Economia Italia",
+      "Sport breaking"
+    ])
+  });
+};
