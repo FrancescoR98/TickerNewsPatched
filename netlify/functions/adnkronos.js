@@ -1,5 +1,3 @@
-// netlify/functions/adnkronos.js
-
 exports.handler = async function (event) {
   try {
     const params = event.queryStringParameters || {};
@@ -8,7 +6,6 @@ exports.handler = async function (event) {
     const FEED_URL =
       "https://www.adnkronos.com/NewsFeed/UltimoraNoVideoJson.xml?username=mediaone&password=m3gt67i9gm";
 
-    // Fetch server-side (niente CORS)
     const upstream = await fetch(FEED_URL, {
       headers: {
         "User-Agent": "netlify-function-adnkronos",
@@ -30,29 +27,46 @@ exports.handler = async function (event) {
 
     const xmlText = await upstream.text();
 
-    // Estrai titoli: prende <title>...</title>, filtra "ultimoranovideo"
-    const rawTitles = xmlText.match(/<title>([\s\S]*?)<\/title>/gi) || [];
-    const titles = rawTitles
-      .map((t) => t.replace(/<\/?title>/gi, "").trim())
-      .filter((t) => t && !t.toLowerCase().includes("ultimoranovideo"))
-      .slice(0, 6);
+    // 1) Estrai contenuto del tag <json>...</json>
+    const m = xmlText.match(/<json\b[^>]*>([\s\S]*?)<\/json>/i);
+    if (!m) {
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify([]),
+      };
+    }
 
-    // Se non troviamo titoli, meglio rispondere 200 con array vuoto (debug dal client)
-    // Volendo puoi fare throw new Error(...) ma così il ticker andrebbe sempre in errore.
-    const body = JSON.stringify(titles);
+    let jsonStr = m[1].trim();
+
+    // 2) Rimuovi eventuale CDATA
+    jsonStr = jsonStr.replace(/^<!\[CDATA\[/, "").replace(/\]\]>$/, "").trim();
+
+    // 3) Parse e prendi news[].title
+    const obj = JSON.parse(jsonStr);
+
+    // Alcuni feed hanno {json:{news:[...]}} altri {news:[...]} → gestiamo entrambi
+    const news =
+      obj?.json?.news ||
+      obj?.news ||
+      obj?.json?.items ||
+      obj?.items ||
+      [];
+
+    const titles = (Array.isArray(news) ? news : [])
+      .map((x) => (x && typeof x.title === "string" ? x.title.trim() : ""))
+      .filter(Boolean)
+      .slice(0, 6);
 
     return {
       statusCode: 200,
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-
-        // Cache condivisa Netlify CDN: 3 ore (10800s)
-        // Browser: 0 (così ogni impianto chiede al CDN, non ad Adnkronos)
         "Cache-Control": force
           ? "no-store"
           : "public, s-maxage=10800, max-age=0",
       },
-      body,
+      body: JSON.stringify(titles),
     };
   } catch (e) {
     return {
