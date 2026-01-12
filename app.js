@@ -1,6 +1,5 @@
-// Legge direttamente l'XML (senza /api e senza functions)
-const FEED_URL =
-  "https://www.adnkronos.com/NewsFeed/UltimoraNoVideoJson.xml?username=mediaone&password=m3gt67i9gm";
+// Netlify Function endpoint (stesso dominio → niente CORS)
+const API_URL = "/.netlify/functions/adnkronos";
 
 const MAX_ITEMS = 6;
 const REFRESH_MS = 10 * 60 * 1000;
@@ -68,59 +67,46 @@ function updateClock() {
     n.getMinutes()
   ).padStart(2, "0")}`;
 }
-
 setInterval(updateClock, 5000);
 updateClock();
 
 /* ---------- Marquee helpers ---------- */
-function buildMarqueeText(ts) {
-  const t = ts.join(SEP);
+function buildMarqueeText(titles) {
+  const t = titles.join(SEP);
   return `${t}${SEP}${t}${SEP}`;
 }
 
-/* ---------- Fetch + parse XML ---------- */
-/**
- * Ritorna un oggetto nel formato:
- * { json: { news: [ {title: "..."} , ... ] } }
- * così il tuo extractTitles rimane identico.
- */
-async function fetchLocal(force = false) {
-  // force non serve più (non c'è cache server-side), lo teniamo per compatibilità
-  const url = `${FEED_URL}${FEED_URL.includes("?") ? "&" : "?"}ts=${Date.now()}`;
+/* ---------- Fetch titles (array) ---------- */
+async function fetchTitles(force = false) {
+  // force = true aggiunge ?refresh=1 per bypass cache lato function (se la implementi)
+  const url = `${API_URL}?ts=${Date.now()}${force ? "&refresh=1" : ""}`;
 
-  const r = await fetch(url, { cache: "no-store" });
+  const r = await fetch(url, {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
+
   if (!r.ok) {
     const text = await r.text();
-    throw new Error(
-      `Bad response (${r.status}) body-start=${text.slice(0, 60)}`
-    );
+    throw new Error(`API ${r.status} body-start=${text.slice(0, 120)}`);
   }
 
-  const xmlText = await r.text();
+  const ct = r.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    const text = await r.text();
+    throw new Error(`Bad content-type=${ct} body-start=${text.slice(0, 120)}`);
+  }
 
-  // Estrae tutti i <title>...</title> (uso dotAll con [\\s\\S] per compatibilità)
-  const matches = xmlText.match(/<title>([\s\S]*?)<\/title>/gi) || [];
+  const data = await r.json();
 
-  // Pulisce e filtra (toglie "ultimoranovideo" e stringhe vuote)
-  const titles = matches
-    .map((m) => m.replace(/<\/?title>/gi, "").trim())
-    .filter((t) => t && !t.toLowerCase().includes("ultimoranovideo"))
+  if (!Array.isArray(data)) {
+    throw new Error("API returned non-array JSON");
+  }
+
+  return data
+    .map((x) => (typeof x === "string" ? x.trim() : ""))
+    .filter(Boolean)
     .slice(0, MAX_ITEMS);
-
-  return {
-    json: {
-      news: titles.map((title) => ({ title })),
-    },
-  };
-}
-
-function extractTitles(p) {
-  try {
-    const n = p?.json?.news ?? [];
-    return n.slice(0, MAX_ITEMS).map((x) => x?.title ?? "").filter(Boolean);
-  } catch {
-    return [];
-  }
 }
 
 /* ---------- Render loop ---------- */
@@ -130,10 +116,8 @@ async function render(force = false) {
   if (!bar || !track) return;
 
   try {
-    const data = await fetchLocal(force);
-    const titles = extractTitles(data);
-
-    if (!titles.length) throw new Error("no titles");
+    const titles = await fetchTitles(force);
+    if (!titles.length) throw new Error("No titles");
 
     bar.classList.remove("error");
     track.textContent = buildMarqueeText(titles);
