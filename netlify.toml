@@ -1,1 +1,3 @@
-undefined
+[build]
+  publish = "."
+  command = ""
