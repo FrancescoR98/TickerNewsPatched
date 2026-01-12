@@ -1,34 +1,27 @@
-const fetch = require('node-fetch');
-
 exports.handler = function(event, context, callback) {
-  const FEED_URL = 'https://www.adnkronos.com/NewsFeed/UltimoraNoVideoJson.xml?username=mediaone&password=m3gt67i9gm';
+  var https = require('https');
   
-  fetch(FEED_URL)
-    .then(res => {
-      if (!res.ok) throw new Error('Adnkronos ' + res.status);
-      return res.text();
-    })
-    .then(xml => {
-      const titles = [];
-      let match;
-      const regex = /<title>([^<]{10,})<\/title>/g;
-      while ((match = regex.exec(xml)) !== null && titles.length < 6) {
-        const title = match[1].trim();
-        if (title && !title.includes('ultimoranovideo')) {
-          titles.push(title);
-        }
-      }
-      
-      callback(null, {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(titles)
-      });
-    })
-    .catch(error => {
-      callback(null, {
-        statusCode: 500,
-        body: JSON.stringify({ error: error.message })
-      });
+  var options = {
+    hostname: 'www.adnkronos.com',
+    port: 443,
+    path: '/NewsFeed/UltimoraNoVideoJson.xml?username=mediaone&password=m3gt67i9gm',
+    method: 'GET'
+  };
+  
+  var req = https.request(options, function(res) {
+    var data = '';
+    
+    res.on('data', function(chunk) {
+      data += chunk;
     });
-};
+    
+    res.on('end', function() {
+      try {
+        // Estrae titoli
+        var titles = [];
+        var regex = /<title>([^<]{10,100}?)<\/title>/g;
+        var match;
+        while ((match = regex.exec(data)) !== null && titles.length < 6) {
+          var title = match[1].trim();
+          if (title && title.toLowerCase().indexOf('ultimoranovideo') === -1) {
+            titles.push(title
